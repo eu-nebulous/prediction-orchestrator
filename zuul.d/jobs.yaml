@@ -8,15 +8,15 @@
       - nebulous-prediction-orchestrator-container-images
     description: Build the container images.
     files: &image_files
-      - ^java-spring-boot-demo/
+      - ^prediction-orchestrator/
     vars: &image_vars
       promote_container_image_job: nebulous-prediction-orchestrator-upload-container-images
       container_images:
-        - context: java-spring-boot-demo
+        - context: prediction-orchestrator
           registry: quay.io
-          repository: quay.io/nebulous/prediction-orchestrator-java-spring-boot-demo
+          repository: quay.io/nebulous/prediction-orchestrator
           namespace: nebulous
-          repo_shortname: prediction-orchestrator-java-spring-boot-demo
+          repo_shortname: prediction-orchestrator
           repo_description: ""
 
 - job:
@@ -44,7 +44,7 @@
     description: Run Hadolint on Dockerfile(s).
     vars:
       dockerfiles:
-        - java-spring-boot-demo/Dockerfile
+        - prediction-orchestrator/Dockerfile
 
 - job:
     name: nebulous-prediction-orchestrator-helm-lint

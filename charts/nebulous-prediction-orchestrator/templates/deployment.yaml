@@ -33,18 +33,23 @@ spec:
             {{- toYaml .Values.securityContext | nindent 12 }}
           image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
           imagePullPolicy: {{ .Values.image.pullPolicy }}
+          env:
+            - name: EXN_HOST
+              value: "{{ .Values.application.env.exnHost }}"
+            - name: EXN_PORT
+              value: "{{ .Values.application.env.exnPort | toString }}"
+            - name: EXN_USERNAME
+              value: "{{ .Values.application.env.exnUsername }}"
+            - name: EXN_PASSWORD
+              value: "{{ .Values.application.env.exnPassword }}"
+            - name: EXN_RETRY_ATTEMPTS
+              value: "{{ .Values.application.env.exnRetryAttempts | toString }}"
+            - name: SERVER_PORT
+              value: "{{ .Values.application.env.serverPort | toString }}"
           ports:
             - name: http
-              containerPort: 8080
+              containerPort: 3333
               protocol: TCP
-          livenessProbe:
-            httpGet:
-              path: /
-              port: http
-          readinessProbe:
-            httpGet:
-              path: /
-              port: http
           resources:
             {{- toYaml .Values.resources | nindent 12 }}
       {{- with .Values.nodeSelector }}

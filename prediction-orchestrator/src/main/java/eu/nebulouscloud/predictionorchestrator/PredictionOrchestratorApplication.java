@@ -1,13 +1,13 @@
-package com.example.demo;
+package eu.nebulouscloud.predictionorchestrator;
 
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
 
 @SpringBootApplication
-public class DemoApplication {
+public class PredictionOrchestratorApplication {
 
     public static void main(String[] args) {
-        SpringApplication.run(DemoApplication.class, args);
+        SpringApplication.run(PredictionOrchestratorApplication.class, args);
     }
 
 }
