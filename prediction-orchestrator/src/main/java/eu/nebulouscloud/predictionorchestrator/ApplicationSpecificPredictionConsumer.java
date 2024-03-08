@@ -64,16 +64,17 @@ public class ApplicationSpecificPredictionConsumer extends Consumer {
 
         private Map<String, Object> transformToPredictedMetric(Map<String, Object> metric) {
             Map<String, Object> predictedMetric = new HashMap<>(metric);
-
-            // Set the prediction confidence to 0.60 as a naive prediction
-            predictedMetric.put("prediction_confidence", 0.60);
-
-            // Set the prediction interval with a length of zero
             Double metricValue = (Double) metric.get("metricValue");
-            predictedMetric.put("prediction_interval", Arrays.asList(metricValue, metricValue));
+            int level = (int) metric.get("level");
 
+            predictedMetric.put("timestamp", System.currentTimeMillis() / 1000);
+            // Set the prediction probability to 0.60 as a naive prediction
+            predictedMetric.put("probability", 0.60);
+            predictedMetric.put("level", level);
+            predictedMetric.put("metricValue", metricValue);
+            predictedMetric.put("confidence_interval", Arrays.asList(metricValue, metricValue));
             // Use the current system time as the prediction time
-            predictedMetric.put("prediction_time", System.currentTimeMillis() / 1000);
+            predictedMetric.put("predictionTime", System.currentTimeMillis() / 1000);
 
             return predictedMetric;
         }
