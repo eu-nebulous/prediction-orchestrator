@@ -48,8 +48,21 @@ public class ApplicationSpecificPredictionConsumer extends Consumer {
             String metricName = parts[parts.length - 1];
             log.debug("Extracted metric name: {}", metricName); // Log the extracted metric name
 
+            // Remove "app_wide_scope_" prefix if present
+            if (metricName.startsWith("app_wide_scope_")) {
+                metricName = metricName.substring(16);
+                log.debug("Removed 'app_wide_scope_' prefix. New metric name: {}", metricName);
+            }
+
             String publisherKey = "predicted_metrics_" + metricName;
             PredictedMetricsPublisher predictedMetricsPublisher = (PredictedMetricsPublisher) ctx.getPublisher(publisherKey);
+
+            // Remove "app_wide_scope_" prefix if present
+            if (metricName.startsWith("app_wide_scope_")) {
+                metricName = metricName.substring(16);
+                log.debug("Removed 'app_wide_scope_' prefix. New metric name: {}", metricName);
+            }
+
 
             if (predictedMetricsPublisher == null) {
                 log.info("PredictedMetricsPublisher for metric {} not found, creating a new one.", metricName);

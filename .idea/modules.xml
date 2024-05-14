@@ -2,7 +2,6 @@
 <project version="4">
   <component name="ProjectModuleManager">
     <modules>
-      <module fileurl="file://$PROJECT_DIR$/.idea/modules/com.example.prediction-orchestrator.main.iml" filepath="$PROJECT_DIR$/.idea/modules/com.example.prediction-orchestrator.main.iml" />
       <module fileurl="file://$PROJECT_DIR$/.idea/prediction-orchestrator.iml" filepath="$PROJECT_DIR$/.idea/prediction-orchestrator.iml" />
     </modules>
   </component>
