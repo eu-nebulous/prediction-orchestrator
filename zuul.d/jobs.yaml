@@ -8,6 +8,7 @@
       - nebulous-prediction-orchestrator-container-images
     description: Build the container images.
     files: &image_files
+      - ^zuul\.d/jobs\.yaml$
       - ^prediction-orchestrator/
     vars: &image_vars
       promote_container_image_job: nebulous-prediction-orchestrator-upload-container-images
