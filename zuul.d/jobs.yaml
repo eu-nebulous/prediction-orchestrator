@@ -19,6 +19,7 @@
           namespace: nebulous
           repo_shortname: prediction-orchestrator
           repo_description: ""
+          tags: ["r1-latest"]
 
 - job:
     name: nebulous-prediction-orchestrator-upload-container-images
