@@ -1,8 +1,9 @@
-package eu.nebulouscloud.predictionorchestrator;
+package eu.nebulouscloud.predictionorchestrator.consumers;
 
 import eu.nebulouscloud.exn.core.Consumer;
 import eu.nebulouscloud.exn.core.Context;
 import eu.nebulouscloud.exn.core.Handler;
+import eu.nebulouscloud.predictionorchestrator.PredictedMetricsPublisher;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.qpid.protonj2.client.Message;
 import org.apache.qpid.protonj2.client.exceptions.ClientException;
@@ -12,16 +13,16 @@ import java.util.HashMap;
 import java.util.Map;
 
 @Slf4j
-public class ApplicationSpecificPredictionConsumer extends Consumer {
+public class RealtimeApplicationMetricConsumer extends Consumer {
 
-    public ApplicationSpecificPredictionConsumer(String applicationName) {
+    public RealtimeApplicationMetricConsumer(String applicationName) {
         super("realtime_metrics_consumer_" + applicationName,
                 "eu.nebulouscloud.monitoring.realtime.>",
                 new ApplicationMetricsHandler(applicationName),
                 true, true);
     }
 
-    private static class ApplicationMetricsHandler extends Handler {
+    public static class ApplicationMetricsHandler extends Handler {
         private String applicationName;
 
         public ApplicationMetricsHandler(String applicationName) {
@@ -30,7 +31,7 @@ public class ApplicationSpecificPredictionConsumer extends Consumer {
 
         @Override
         public void onMessage(String key, String address, Map body, Message message, Context ctx) {
-            log.debug("Received message with key: {}, address: {}", key, address); // Added more context to the log message
+            log.debug("Received message with key: {}, address: {}", key, address);
 
             // Transform Type I message to Type II format (predicted metrics)
             Map<String, Object> predictedMetric = transformToPredictedMetric(body);
@@ -57,28 +58,21 @@ public class ApplicationSpecificPredictionConsumer extends Consumer {
             String publisherKey = "predicted_metrics_" + metricName;
             PredictedMetricsPublisher predictedMetricsPublisher = (PredictedMetricsPublisher) ctx.getPublisher(publisherKey);
 
-            // Remove "app_wide_scope_" prefix if present
-            if (metricName.startsWith("app_wide_scope_")) {
-                metricName = metricName.substring(16);
-                log.debug("Removed 'app_wide_scope_' prefix. New metric name: {}", metricName);
-            }
-
-
             if (predictedMetricsPublisher == null) {
                 log.info("PredictedMetricsPublisher for metric {} not found, creating a new one.", metricName);
                 predictedMetricsPublisher = new PredictedMetricsPublisher(metricName);
                 ctx.registerPublisher(predictedMetricsPublisher);
-                log.info("New PredictedMetricsPublisher for metric {} registered.", metricName);
+                log.info("New PredictedMetricsPublisher for metric {} registered with topic: {}", metricName, predictedMetricsPublisher.topic);
             }
-
             predictedMetricsPublisher.send(predictedMetric, applicationName);
-            log.info("Sent predicted metric to topic: {}", predictedMetricsPublisher.topicName);
+            log.info("Sent predicted metric to topic: {}", predictedMetric);
         }
 
         private Map<String, Object> transformToPredictedMetric(Map<String, Object> metric) {
             Map<String, Object> predictedMetric = new HashMap<>(metric);
             Double metricValue = (Double) metric.get("metricValue");
             int level = (int) metric.get("level");
+
 
             predictedMetric.put("timestamp", System.currentTimeMillis() / 1000);
             // Set the prediction probability to 0.60 as a naive prediction
