@@ -3,6 +3,7 @@ package eu.nebulouscloud.predictionorchestrator;
 import eu.nebulouscloud.exn.Connector;
 import eu.nebulouscloud.exn.core.Consumer;
 import eu.nebulouscloud.exn.settings.StaticExnConfig;
+import eu.nebulouscloud.predictionorchestrator.consumers.MetricsListConsumer;
 import jakarta.annotation.PostConstruct;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
@@ -44,7 +45,7 @@ public class PredictionOrchestrator {
                     new PredictionOrchestratorHandler(),
                     List.of(), // List of publishers
                     List.of(new Consumer("ui_app_messages", app_creation_channel,
-                            new ApplicationCreationHandler(), true, true)),
+                            new ApplicationCreationHandler(), true, true), new MetricsListConsumer()),
                     true, // enableState
                     true, // enableHealth
                     new StaticExnConfig(host, port, username, password, retryAttempts) // Configuration

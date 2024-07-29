@@ -1,4 +1,4 @@
-package eu.nebulouscloud.predictionorchestrator;
+package eu.nebulouscloud.predictionorchestrator.publishers;
 
 import eu.nebulouscloud.exn.core.Publisher;
 

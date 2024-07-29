@@ -3,7 +3,7 @@ package eu.nebulouscloud.predictionorchestrator.consumers;
 import eu.nebulouscloud.exn.core.Consumer;
 import eu.nebulouscloud.exn.core.Context;
 import eu.nebulouscloud.exn.core.Handler;
-import eu.nebulouscloud.predictionorchestrator.PredictedMetricsPublisher;
+import eu.nebulouscloud.predictionorchestrator.publishers.PredictedMetricsPublisher;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.qpid.protonj2.client.Message;
 import org.apache.qpid.protonj2.client.exceptions.ClientException;

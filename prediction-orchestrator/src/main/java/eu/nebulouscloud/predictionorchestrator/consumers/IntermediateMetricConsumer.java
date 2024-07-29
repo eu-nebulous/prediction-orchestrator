@@ -3,7 +3,7 @@ package eu.nebulouscloud.predictionorchestrator.consumers;
 import eu.nebulouscloud.exn.core.Consumer;
 import eu.nebulouscloud.exn.core.Context;
 import eu.nebulouscloud.exn.core.Handler;
-import eu.nebulouscloud.predictionorchestrator.PredictedMetricsPublisher;
+import eu.nebulouscloud.predictionorchestrator.publishers.PredictedMetricsPublisher;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.qpid.protonj2.client.Message;
 import org.apache.qpid.protonj2.client.exceptions.ClientException;
@@ -16,14 +16,14 @@ public class IntermediateMetricConsumer extends Consumer {
     public IntermediateMetricConsumer(String applicationName) {
         super("intermediate_metrics_consumer_" + applicationName,
                 "eu.nebulouscloud.monitoring.preliminary_predicted.*.*",
-                new Intermediate_metrics_handler(applicationName),
+                new IntermediateMetricsHandler(applicationName),
                 true, true);
     }
 
-    public static class Intermediate_metrics_handler extends Handler {
+    public static class IntermediateMetricsHandler extends Handler {
         private String applicationName;
 
-        public Intermediate_metrics_handler(String applicationName) {
+        public IntermediateMetricsHandler(String applicationName) {
             this.applicationName = applicationName;
         }
 
@@ -32,7 +32,6 @@ public class IntermediateMetricConsumer extends Consumer {
             log.info("Received message with key: {}, address: {}", key, address);
 
             Map predictedMetric = body;
-
 
             String[] parts;
             try {

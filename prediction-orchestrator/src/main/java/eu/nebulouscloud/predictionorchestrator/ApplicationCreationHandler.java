@@ -14,7 +14,7 @@ import java.util.Map;
 public class ApplicationCreationHandler extends Handler {
 
     @Value("${metric.mode}")
-    private String mode;
+    private String mode = "intermediate";
 
     @Override
     public void onMessage(String key, String address, Map body, Message message, Context context) {
