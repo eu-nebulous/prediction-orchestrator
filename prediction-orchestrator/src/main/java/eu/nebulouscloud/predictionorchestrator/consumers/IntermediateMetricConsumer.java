@@ -15,7 +15,7 @@ public class IntermediateMetricConsumer extends Consumer {
 
     public IntermediateMetricConsumer(String applicationName) {
         super("intermediate_metrics_consumer_" + applicationName,
-                "eu.nebulouscloud.monitoring.preliminary_predicted.*.*",
+                "eu.nebulouscloud.monitoring.preliminary_predicted.>",
                 new IntermediateMetricsHandler(applicationName),
                 true, true);
     }
@@ -30,8 +30,7 @@ public class IntermediateMetricConsumer extends Consumer {
         @Override
         public void onMessage(String key, String address, Map body, Message message, Context ctx) {
             log.info("Received message with key: {}, address: {}", key, address);
-
-            Map predictedMetric = body;
+            log.info("Intermediate Metric body: {}", body);
 
             String[] parts;
             try {
@@ -58,10 +57,10 @@ public class IntermediateMetricConsumer extends Consumer {
                 log.info("PredictedMetricsPublisher for metric {} not found, creating a new one.", metricName);
                 predictedMetricsPublisher = new PredictedMetricsPublisher(metricName);
                 ctx.registerPublisher(predictedMetricsPublisher);
-                log.info("New PredictedMetricsPublisher for metric {} registered with topic: {}", metricName, predictedMetricsPublisher.topic);
+                log.info("New PredictedMetricsPublisher for metric {}", metricName);
             }
-            predictedMetricsPublisher.send(predictedMetric, applicationName);
-            log.info("Sent predicted metric to topic: {}", predictedMetric);
+            predictedMetricsPublisher.send(body, applicationName);
+            log.info("Sent predicted metric to topic: {}", body);
         }
     }
 }

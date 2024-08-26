@@ -7,10 +7,7 @@ import eu.nebulouscloud.predictionorchestrator.messages.StartForecastingMessage;
 import org.junit.Test;
 import org.junit.jupiter.api.BeforeEach;
 
-import java.util.Arrays;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
+import java.util.*;
 
 import static com.github.javaparser.utils.Utils.assertNotNull;
 import static org.junit.Assert.assertArrayEquals;
@@ -58,18 +55,21 @@ public class MetricsListConsumerTest {
         int predictionHorizon = 120;
 
         // When
-        StartForecastingMessage startForecastingMessage = MetricsListConsumer.mapToStartForecastingMessage(
+        StartForecastingMessage startForecastingMessage = MetricsListConsumer.MetricsListHandler.mapToStartForecastingMessage(
                 metricListMessage, timestamp, epochStart, numberOfForwardPredictions, predictionHorizon
         );
 
+        List<String> metricList = new ArrayList<>(List.of("metric_1", "metric_2", "metric_3"));
+
         // Then
         assertNotNull(startForecastingMessage);
-        assertEquals("_Application1", startForecastingMessage.getApplicationName());
-        assertArrayEquals(new String[]{"metric_1", "metric_2", "metric_3"}, startForecastingMessage.getMetrics());
+        assertEquals("_Application1", startForecastingMessage.getName());
+        assertArrayEquals(metricList.toArray(), startForecastingMessage.getMetrics().toArray());
         assertEquals(timestamp, startForecastingMessage.getTimestamp());
         assertEquals(epochStart, startForecastingMessage.getEpochStart());
         assertEquals(numberOfForwardPredictions, startForecastingMessage.getNumberOfForwardPredictions());
         assertEquals(predictionHorizon, startForecastingMessage.getPredictionHorizon());
+
     }
 
     private Map<String, String> createMetricMap(String name, String upperBound, String lowerBound) {
