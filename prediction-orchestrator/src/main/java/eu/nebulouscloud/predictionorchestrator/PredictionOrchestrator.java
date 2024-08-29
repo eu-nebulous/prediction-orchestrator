@@ -5,6 +5,7 @@ import eu.nebulouscloud.exn.core.Consumer;
 import eu.nebulouscloud.exn.settings.StaticExnConfig;
 import jakarta.annotation.PostConstruct;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
@@ -31,6 +32,9 @@ public class PredictionOrchestrator {
 
     public static final String app_creation_channel = "eu.nebulouscloud.ui.dsl.generic";
 
+    @Autowired
+    private ApplicationCreationHandler applicationCreationHandler;
+
     @PostConstruct
     public void init() {
         startConnector();
@@ -44,7 +48,7 @@ public class PredictionOrchestrator {
                     new PredictionOrchestratorHandler(),
                     List.of(), // List of publishers
                     List.of(new Consumer("ui_app_messages", app_creation_channel,
-                            new ApplicationCreationHandler(), true, true)),
+                            applicationCreationHandler, true, true)),
                     true, // enableState
                     true, // enableHealth
                     new StaticExnConfig(host, port, username, password, retryAttempts) // Configuration
