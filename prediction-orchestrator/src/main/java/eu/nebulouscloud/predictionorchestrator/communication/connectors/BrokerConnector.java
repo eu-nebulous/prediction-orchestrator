@@ -4,7 +4,9 @@ import eu.nebulouscloud.exn.Connector;
 import eu.nebulouscloud.exn.core.Consumer;
 import eu.nebulouscloud.exn.settings.StaticExnConfig;
 import eu.nebulouscloud.predictionorchestrator.Orchestrator;
+import eu.nebulouscloud.predictionorchestrator.PredictionRegistry;
 import eu.nebulouscloud.predictionorchestrator.Properties;
+import eu.nebulouscloud.predictionorchestrator.communication.consumers.IntermediateMetricsConsumer;
 import eu.nebulouscloud.predictionorchestrator.communication.consumers.MetricsListConsumer;
 import jakarta.annotation.PostConstruct;
 import lombok.extern.slf4j.Slf4j;
@@ -48,6 +50,9 @@ public class BrokerConnector {
     @Autowired
     private BrokerConnectorHandler brokerConnectorHandler;
 
+    @Autowired
+    private PredictionRegistry predictionRegistry;
+
     @PostConstruct
     public void init() {
         startConnector();
@@ -61,7 +66,9 @@ public class BrokerConnector {
                     brokerConnectorHandler,
                     List.of(), // List of publishers
                     List.of(new Consumer("ui_app_messages", app_creation_channel,
-                            applicationCreationHandler, true, true), new MetricsListConsumer(orchestrator, properties)),
+                            applicationCreationHandler, true, true),
+                            new MetricsListConsumer(orchestrator, properties),
+                            new IntermediateMetricsConsumer(predictionRegistry)),
                     true, // enableState
                     true, // enableHealth
                     new StaticExnConfig(host, port, username, password, retryAttempts) // Configuration
