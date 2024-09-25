@@ -38,7 +38,6 @@ public class ApplicationCreationHandler extends Handler {
                     context.registerConsumer(new RealtimeApplicationMetricConsumer(app_id));
                     break;
                 case "intermediate":
-                    context.registerConsumer(new IntermediateMetricsConsumer(predictionRegistry));
                     break;
                 default:
                     log.warn("Unknown mode: {}", mode);
