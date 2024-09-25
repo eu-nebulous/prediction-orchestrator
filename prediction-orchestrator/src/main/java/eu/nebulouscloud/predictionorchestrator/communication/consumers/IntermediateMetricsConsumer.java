@@ -8,6 +8,8 @@ import eu.nebulouscloud.predictionorchestrator.Prediction;
 import eu.nebulouscloud.predictionorchestrator.PredictionRegistry;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.qpid.protonj2.client.Message;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.stereotype.Component;
 
 import java.util.List;
 import java.util.Map;
@@ -15,23 +17,19 @@ import java.util.Map;
 @Slf4j
 public class IntermediateMetricsConsumer extends Consumer {
 
-    private final PredictionRegistry predictionRegistry;
-
-    public IntermediateMetricsConsumer(String applicationName, PredictionRegistry predictionRegistry) {
-        super("intermediate_metrics_consumer_" + applicationName,
-                "eu.nebulouscloud.monitoring.preliminary_predicted.>",
-                new IntermediateMetricsHandler(applicationName, predictionRegistry),
+    public IntermediateMetricsConsumer(PredictionRegistry predictionRegistry) {
+        super("intermediate_metrics_consumer",
+                "eu.nebulouscloud.preliminary_predicted.>",
+                new IntermediateMetricsHandler(predictionRegistry),
                 true, true);
-        this.predictionRegistry = predictionRegistry;
     }
 
     public static class IntermediateMetricsHandler extends Handler {
-        private final String applicationName;
         private final PredictionRegistry predictionRegistry;
 
-        public IntermediateMetricsHandler(String applicationName, PredictionRegistry predictionRegistry) {
-            this.applicationName = applicationName;
-            this.predictionRegistry = predictionRegistry;
+        // Constructor for handler that takes applicationName and predictionRegistry
+        public IntermediateMetricsHandler(PredictionRegistry predictionRegistry) {
+            this.predictionRegistry = predictionRegistry;  // Store the passed registry
         }
 
         @Override
@@ -50,13 +48,13 @@ public class IntermediateMetricsConsumer extends Consumer {
                         (String) body.get("componentId"),
                         Long.parseLong(body.get("timestamp").toString()),
                         Double.parseDouble(body.get("probability").toString()),
-                        (List<Double>) body.get("confidenceInterval"),
+                        (List<Double>) body.get("confidence_interval"),
                         Long.parseLong(body.get("predictionTime").toString()),
                         predictionMethodName,
                         metricName
                 );
-
-                predictionRegistry.storePrediction(applicationName, prediction);
+                String applicationName = message.subject();
+                predictionRegistry.storePrediction(applicationName, metricName, predictionMethodName, prediction);
 
             } catch (Exception e) {
                 log.error("Failed to process message", e);

@@ -2,36 +2,79 @@ package eu.nebulouscloud.predictionorchestrator;
 
 import eu.nebulouscloud.predictionorchestrator.influx.InfluxDBService;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
+import org.apache.commons.collections4.queue.CircularFifoQueue;
 
+
+import java.util.HashMap;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.CountDownLatch;
-import java.util.concurrent.atomic.AtomicReference;
 
 @Slf4j
 @Component
 public class PredictionRegistry {
-    private final long predictionHorizon;
-    private final AtomicReference<Long> epochStart = new AtomicReference<>(null);
-    private final CountDownLatch epochStartLatch = new CountDownLatch(1);
     private final InfluxDBService influxDBService;
+    private final Properties properties = new Properties();
 
-    private final Map<String, Map<String, Prediction>> storedPredictions = new ConcurrentHashMap<>(); // Stores ensembled predictions by metric name
+    // New data structure that includes timestamp organization
+    private final Map<String, Map<String, Map<String, Map<Long, CircularFifoQueue<Prediction>>>>> predictionQueues = new ConcurrentHashMap<>();
 
-    public PredictionRegistry(
-            @Value("${prediction.horizon}") long predictionHorizon,
-            InfluxDBService influxDBService) {
-        this.predictionHorizon = predictionHorizon;
+    private int queueSize;
+
+    public PredictionRegistry(InfluxDBService influxDBService) {
         this.influxDBService = influxDBService;
+
+        // Safely set the queue size, fallback to a default value if not properly configured
+        int defaultQueueSize = 10; // Set a sensible default value
+        this.queueSize = Math.max(properties.getInitial_forward_prediction_number(), defaultQueueSize);
     }
 
-    public void setEpochStart(long epochStart) {
-        this.epochStart.set(epochStart);
-        epochStartLatch.countDown();  // Signal that the epoch start has been set
+    // Get or create a queue organized by timestamp
+    public CircularFifoQueue<Prediction> getOrCreateQueue(String appName, String metricName, String method, long timestamp) {
+        return predictionQueues
+                .computeIfAbsent(appName, k -> new ConcurrentHashMap<>())
+                .computeIfAbsent(metricName, k -> new ConcurrentHashMap<>())
+                .computeIfAbsent(method, k -> new ConcurrentHashMap<>())
+                .computeIfAbsent(timestamp, k -> new CircularFifoQueue<>(queueSize));
     }
 
+    // Store a prediction by method and timestamp
+    public void storePrediction(String appName, String metricName, String method, Prediction prediction) {
+        CircularFifoQueue<Prediction> queue = getOrCreateQueue(appName, metricName, method, prediction.getPredictionTime());
+        queue.add(prediction); // Automatically discards the oldest prediction when full
+    }
+
+    // Get the latest prediction for each method at the specified timestamp
+    public Map<String, Prediction> getPredictionsByMethodAndTimestamp(String appName, String metricName, long timestamp) {
+        Map<String, Map<Long, CircularFifoQueue<Prediction>>> methodQueues = predictionQueues
+                .computeIfAbsent(appName, k -> new ConcurrentHashMap<>())
+                .getOrDefault(metricName, new ConcurrentHashMap<>());
+
+        // Collect the most recent prediction for each method at the given timestamp
+        Map<String, Prediction> predictionsByMethod = new HashMap<>();
+        for (Map.Entry<String, Map<Long, CircularFifoQueue<Prediction>>> entry : methodQueues.entrySet()) {
+            CircularFifoQueue<Prediction> queue = entry.getValue().get(timestamp);
+            if (queue != null && !queue.isEmpty()) {
+                predictionsByMethod.put(entry.getKey(), queue.peek());
+            }
+        }
+        return predictionsByMethod;
+    }
+
+    // Cleanup old predictions for a specific timestamp
+    public void cleanupOldPredictions(String appName, String metricName, long timestamp) {
+        Map<String, Map<Long, CircularFifoQueue<Prediction>>> methodQueues = predictionQueues
+                .computeIfAbsent(appName, k -> new ConcurrentHashMap<>())
+                .getOrDefault(metricName, new ConcurrentHashMap<>());
+
+        for (Map<Long, CircularFifoQueue<Prediction>> timestampQueues : methodQueues.values()) {
+            timestampQueues.remove(timestamp);  // Remove only the queue for the specified timestamp
+        }
+
+//        log.debug("Cleaned up old predictions for application {} and metric {} at timestamp {}", appName, metricName, timestamp);
+    }
+
+    // Store the ensembled prediction in InfluxDB
     public void storeEnsembledPrediction(String applicationName, Prediction ensembledPrediction) {
         try {
             String bucketName = "ensembledPredictions_" + applicationName;
@@ -44,54 +87,4 @@ public class PredictionRegistry {
             log.error("Failed to store ensembled prediction for application {}", applicationName, e);
         }
     }
-
-    private boolean isValidPredictionTime(long predictionTime, long epochStart) {
-        return predictionTime >= epochStart && (predictionTime - epochStart) % predictionHorizon == 0;
-    }
-
-    private boolean hasSufficientHorizon(Prediction prediction) {
-        long timeDelta = prediction.getPredictionTime() - prediction.getTimestamp();
-        return timeDelta >= predictionHorizon;
-    }
-
-    public void storePrediction(String applicationName, Prediction prediction) {
-        try {
-            epochStartLatch.await();  // Wait until epochStart is set
-
-            long epochStartValue = epochStart.get();
-            if (!isValidPredictionTime(prediction.getPredictionTime(), epochStartValue)) {
-                log.info("Prediction for application {} and metric {} at time {} is disregarded due to invalid time point (epoch start: {}, prediction horizon: {})",
-                        applicationName, prediction.getMetricName(), prediction.getPredictionTime(), epochStartValue, predictionHorizon);
-                return;
-            }
-
-            if (!hasSufficientHorizon(prediction)) {
-                long timeDelta = prediction.getPredictionTime() - prediction.getTimestamp();
-                log.info("Prediction for application {} and metric {} at time {} is disregarded due to insufficient horizon ({} seconds)",
-                        applicationName, prediction.getMetricName(), prediction.getPredictionTime(), timeDelta);
-                return;
-            }
-
-            // Store the prediction in the map
-            storedPredictions
-                    .computeIfAbsent(applicationName, k -> new ConcurrentHashMap<>())
-                    .put(prediction.getMetricName(), prediction);
-
-            // Optionally, write the prediction to InfluxDB
-            influxDBService.writePrediction(applicationName, prediction);
-
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-            log.error("Interrupted while waiting for epoch start to be set", e);
-        }
-    }
-
-    public Prediction getPrediction(String applicationName, String metricName) {
-        Map<String, Prediction> predictionsByMetric = storedPredictions.get(applicationName);
-        if (predictionsByMetric != null) {
-            return predictionsByMetric.get(metricName);
-        }
-        return null;
-    }
-
 }

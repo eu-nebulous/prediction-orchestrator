@@ -1,20 +1,25 @@
 package eu.nebulouscloud.predictionorchestrator;
 
+import eu.nebulouscloud.exn.core.Context;
+import eu.nebulouscloud.exn.core.Publisher;
+import eu.nebulouscloud.predictionorchestrator.communication.PublisherFactory;
+import eu.nebulouscloud.predictionorchestrator.communication.connectors.BrokerConnectorHandler;
+import eu.nebulouscloud.predictionorchestrator.communication.publishers.PredictedMetricsPublisher;
 import eu.nebulouscloud.predictionorchestrator.ensembling.EnsemblingMechanism;
 import eu.nebulouscloud.predictionorchestrator.ensembling.EnsemblingMechanismFactory;
-import eu.nebulouscloud.predictionorchestrator.influx.InfluxDBService;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.scheduling.TaskScheduler;
 import org.springframework.scheduling.concurrent.ThreadPoolTaskScheduler;
 import org.springframework.stereotype.Component;
 
-import java.time.Instant;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 
+@Slf4j
 @Component
 public class Orchestrator {
 
@@ -22,85 +27,123 @@ public class Orchestrator {
     private final Map<String, Integer> timeHorizonMap = new ConcurrentHashMap<>();
     private final Map<String, List<String>> metricNamesMap = new ConcurrentHashMap<>();
     private final TaskScheduler scheduler;
-
-    @Autowired
-    private InfluxDBService influxDBService;
-
     private final EnsemblingMechanism ensemblingMechanism;
+    private final Properties properties;
+    private final PredictionRegistry predictionRegistry;
 
     @Autowired
-    private PredictionRegistryFactory predictionRegistryFactory;
-
-    private Properties properties;
+    private PublisherFactory publisherFactory;
 
     @Autowired
-    public Orchestrator(InfluxDBService influxDBService, PredictionRegistryFactory predictionRegistryFactory) {
-
-        // Initialize the TaskScheduler
+    public Orchestrator(Properties properties, PredictionRegistry predictionRegistry, BrokerConnectorHandler brokerConnectorHandler) {
         ThreadPoolTaskScheduler taskScheduler = new ThreadPoolTaskScheduler();
-        taskScheduler.setPoolSize(10);
+        taskScheduler.setPoolSize(properties.getInitial_forward_prediction_number());
         taskScheduler.initialize();
         this.scheduler = taskScheduler;
 
+        this.properties = properties;
+        this.predictionRegistry = predictionRegistry;
         this.ensemblingMechanism = EnsemblingMechanismFactory.getEnsemblingMechanism(properties);
-
-        this.influxDBService = influxDBService;
-        this.predictionRegistryFactory = predictionRegistryFactory;
+        log.info("Orchestrator initialized with a pool size of 10 for the TaskScheduler.");
     }
 
-    public void addApplication(String appName, LocalDateTime epochStart, int timeHorizonMinutes, List<String> metricNames) {
+    public void addApplication(String appName, LocalDateTime epochStart, List<String> metricNames) {
+        log.info("Adding application {} with epoch start {} and time horizon {} seconds.", appName, epochStart, properties.getInitial_prediction_horizon());
+
         epochStartMap.put(appName, epochStart);
-        timeHorizonMap.put(appName, timeHorizonMinutes);
+        timeHorizonMap.put(appName, properties.getInitial_prediction_horizon());
         metricNamesMap.put(appName, metricNames);
+
         scheduleTasks(appName);
     }
 
     private void scheduleTasks(String appName) {
+        log.info("Scheduling tasks for application {}.", appName);
+
         LocalDateTime epochStart = epochStartMap.get(appName);
-        int timeHorizonMinutes = timeHorizonMap.get(appName); // Get the time horizon
+        int timeHorizon = timeHorizonMap.get(appName);
         List<String> metricNames = metricNamesMap.get(appName);
 
-        for (int i = 1; i <= properties.getInitial_forward_prediction_number(); i++) {  // Assuming 5 forward predictions, based on the time horizon
-            LocalDateTime adaptationTime = epochStart.plusMinutes(i * timeHorizonMinutes); // Apply the time horizon here
-            LocalDateTime fetchTime = adaptationTime.minusSeconds(10);  // Fetch data 10 seconds before adaptation
-
-            for (String metricName : metricNames) {
-                scheduler.schedule(() -> pullAndEnsemblePredictions(appName, metricName, adaptationTime), fetchTime.atZone(ZoneId.systemDefault()).toInstant());
-            }
-            scheduler.schedule(() -> performAdaptation(appName, adaptationTime), adaptationTime.atZone(ZoneId.systemDefault()).toInstant());
-        }
+        // Start scheduling the next task based on epochStart
+        scheduleNextTask(appName, epochStart, timeHorizon, metricNames);
     }
+
+    private void scheduleNextTask(String appName, LocalDateTime adaptationTime, int timeHorizon, List<String> metricNames) {
+        log.info("Scheduling next task for application {} at {}.", appName, adaptationTime);
+
+        // Calculate fetch time
+        LocalDateTime fetchTime = adaptationTime.minusSeconds(10);
+        log.debug("Fetch time for application {}: {} (10 seconds before adaptation).", appName, fetchTime);
+
+        long adaptationTimeEpoch = adaptationTime.atZone(ZoneId.systemDefault()).toEpochSecond();
+        log.debug("Epoch time for application {}: {}", appName, adaptationTimeEpoch);
+
+        // Schedule ensembling for each metric
+        for (String metricName : metricNames) {
+            scheduler.schedule(() -> {
+                log.debug("Scheduled task running for metric {} at time {}.", metricName, adaptationTime);
+                pullAndEnsemblePredictions(appName, metricName, adaptationTime);
+            }, fetchTime.atZone(ZoneId.systemDefault()).toInstant());
+        }
+
+        // Schedule cleanup of old predictions
+        LocalDateTime cleanupTime = adaptationTime.plusSeconds(60);
+        log.debug("Scheduling cleanup for application {} at {} (1 minute after adaptation).", appName, cleanupTime);
+
+        for (String metricName : metricNames) {
+            scheduler.schedule(() -> {
+                log.debug("Cleaning up old predictions for application {}, metric {}, at timestamp {}.", appName, metricName, adaptationTimeEpoch);
+                predictionRegistry.cleanupOldPredictions(appName, metricName, adaptationTimeEpoch);
+            }, cleanupTime.atZone(ZoneId.systemDefault()).toInstant());
+        }
+
+        // Calculate next adaptation time and recursively schedule the next task
+        LocalDateTime nextAdaptationTime = adaptationTime.plusSeconds(timeHorizon);
+        log.info("Next adaptation time for application {}: {}.", appName, nextAdaptationTime);
+
+        scheduler.schedule(() -> scheduleNextTask(appName, nextAdaptationTime, timeHorizon, metricNames),
+                nextAdaptationTime.atZone(ZoneId.systemDefault()).toInstant());
+    }
+
 
     private void pullAndEnsemblePredictions(String appName, String metricName, LocalDateTime adaptationTime) {
-        LocalDateTime latestFetchTime = adaptationTime.minusSeconds(10);
-        LocalDateTime earliestFetchTime = latestFetchTime.minusMinutes(1);
+        long adaptationTimeEpoch = adaptationTime.atZone(ZoneId.systemDefault()).toEpochSecond();
+        log.info("Pulling predictions for application '{}' and metric '{}' at timestamp {}.", appName, metricName, adaptationTimeEpoch);
 
-        // Fetch predictions from the database
-        Map<String, Prediction> predictionsByMethod = influxDBService.fetchPredictions(appName, metricName, earliestFetchTime, latestFetchTime);
-
-        // Ensemble the predictions using the appropriate mechanism
-        Prediction ensembledPrediction = ensemblingMechanism.poolPredictions(predictionsByMethod, metricName);
-
-        // Store the ensembled prediction back
-        PredictionRegistry predictionRegistry = predictionRegistryFactory.getRegistryForApplication(appName);
         if (predictionRegistry != null) {
-            predictionRegistry.storeEnsembledPrediction(appName,ensembledPrediction);
-        }
+            Map<String, Prediction> predictionsByMethod = predictionRegistry.getPredictionsByMethodAndTimestamp(appName, metricName, adaptationTimeEpoch);
 
-        PredictedMetricsPublisher predictedMetricsPublisher = new PredictedMetricsPublisher(metricName);
-        predictedMetricsPublisher.send(Prediction.toMap(ensembledPrediction));
+            if (!predictionsByMethod.isEmpty()) {
+                log.debug("Retrieved {} predictions for application '{}' and metric '{}' at timestamp {}.", predictionsByMethod.size(), appName, metricName, adaptationTimeEpoch);
 
+                // Perform ensembling
+                Prediction ensembledPrediction = ensemblingMechanism.poolPredictions(predictionsByMethod, metricName);
+                log.info("Ensembled prediction created for application '{}' and metric '{}' with value: {}", appName, metricName, ensembledPrediction);
+                //TODO
+                // Store the ensembled prediction in the registry
+//                predictionRegistry.storeEnsembledPrediction(appName, ensembledPrediction);
+//                log.info("Ensembled prediction for application '{}' and metric '{}' stored successfully.", appName, metricName);
 
-    }
+                // Retrieve the Publisher via PublisherFactory
+                Publisher publisher = publisherFactory.getOrCreatePublisher(metricName);
 
-    private void performAdaptation(String appName, LocalDateTime adaptationTime) {
-        PredictionRegistry predictionRegistry = predictionRegistryFactory.getRegistryForApplication(appName);
-        if (predictionRegistry != null) {
-            // Logic to trigger adaptation based on ensembled predictions
-            System.out.println("Performing adaptation for " + appName + " at " + adaptationTime);
-            // Use the ensembled data in predictionRegistry for adaptation
+                if (publisher != null) {
+                    try {
+                        // Send the ensembled prediction for publishing
+                        publisher.send(Prediction.toMap(ensembledPrediction), appName);
+                        log.info("Ensembled prediction for application '{}' and metric '{}' sent to publisher successfully.", appName, metricName);
+                    } catch (Exception e) {
+                        log.error("Failed to send ensembled prediction for application '{}' and metric '{}'. Exception: {}", appName, metricName, e.getMessage(), e);
+                    }
+                } else {
+                    log.error("Unable to obtain Publisher for metric '{}' and application '{}'.", metricName, appName);
+                }
+
+            } else {
+                log.warn("No predictions found for application '{}' and metric '{}' at timestamp {}.", appName, metricName, adaptationTimeEpoch);
+            }
         } else {
-            System.out.println("No PredictionRegistry found for application: " + appName);
+            log.error("PredictionRegistry is null. Cannot pull predictions for application '{}' and metric '{}'.", appName, metricName);
         }
     }
 }

@@ -11,7 +11,7 @@ import org.springframework.context.annotation.Configuration;
 import org.springframework.context.annotation.PropertySource;
 
 @Configuration
-@PropertySource("file:predictionorchestrator.properties")
+@PropertySource("classpath:application.properties")
 @Getter
 @Setter
 @ToString
@@ -40,9 +40,6 @@ public class Properties {
 
     @Value("${influx.url}")
     private String url;
-
-    @Value("${influx.token}")
-    String token;
 
     @Value("${influx.org}")
     private String org;

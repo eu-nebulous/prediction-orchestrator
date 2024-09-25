@@ -4,9 +4,9 @@ package eu.nebulouscloud.predictionorchestrator.communication.publishers;
 import eu.nebulouscloud.exn.core.Publisher;
 
 public class StartForecastingPublisher extends Publisher {
-    String topicName;
-    public StartForecastingPublisher(String topicName, String applicationName) {
-        super("start_forecasting_" + applicationName, "eu.nebulouscloud.forecasting.start_forecasting." + topicName, true, true);
-        this.topicName = topicName;
+    String methodName;
+    public StartForecastingPublisher(String methodName, String applicationName) {
+        super("start_forecasting_" + methodName + applicationName, "eu.nebulouscloud.forecasting.start_forecasting." + methodName, true, true);
+        this.methodName = methodName;
     }
 }

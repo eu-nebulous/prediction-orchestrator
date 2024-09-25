@@ -1,7 +1,6 @@
 package eu.nebulouscloud.predictionorchestrator.communication.messages;
 
 import com.fasterxml.jackson.annotation.JsonProperty;
-import eu.morphemic.prediction_orchestrator.communication.messages.incoming_messages.MetricNeedingPredictingMessage;
 import lombok.AllArgsConstructor;
 import lombok.NonNull;
 

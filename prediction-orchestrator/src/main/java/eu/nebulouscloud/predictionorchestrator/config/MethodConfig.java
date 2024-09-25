@@ -1,4 +1,4 @@
-package eu.nebulouscloud.predictionorchestrator;
+package eu.nebulouscloud.predictionorchestrator.config;
 
 
 import jakarta.annotation.PostConstruct;
