@@ -26,7 +26,7 @@ public class Prediction {
         predictionMap.put("componentId", prediction.getComponentId());
         predictionMap.put("timestamp", prediction.getTimestamp());
         predictionMap.put("probability", prediction.getProbability());
-        predictionMap.put("confidenceInterval", prediction.getConfidenceInterval());
+        predictionMap.put("confidence_interval", prediction.getConfidenceInterval());
         predictionMap.put("predictionTime", prediction.getPredictionTime());
         predictionMap.put("predictionMethod", prediction.getPredictionMethod());
         predictionMap.put("metricName", prediction.getMetricName());
