@@ -31,6 +31,7 @@ public class EnsemblerService {
 
     public PredictionsEnsembledMessage ensemble(PredictionsToEnsembleMessage predictionsToEnsembleMessage) {
         try {
+            log.info("Sending request to ensemble predictions: {}", predictionsToEnsembleMessage);
             return client.post()
                     .uri(ensemblerUri)
                     .bodyValue(predictionsToEnsembleMessage)
@@ -42,6 +43,7 @@ public class EnsemblerService {
                     )
                     .bodyToMono(PredictionsEnsembledMessage.class)
                     .block();
+            
         } catch (UnknownHttpStatusCodeException e) {
             log.error("Unknown HTTP status code received: {}", e.getRawStatusCode());
             return null;

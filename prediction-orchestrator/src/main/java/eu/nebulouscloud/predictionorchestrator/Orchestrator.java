@@ -117,12 +117,8 @@ public class Orchestrator {
                 log.debug("Retrieved {} predictions for application '{}' and metric '{}' at timestamp {}.", predictionsByMethod.size(), appName, metricName, adaptationTimeEpoch);
 
                 // Perform ensembling
-                Prediction ensembledPrediction = ensemblingMechanism.poolPredictions(predictionsByMethod, metricName);
+                Prediction ensembledPrediction = ensemblingMechanism.poolPredictions(predictionsByMethod, metricName, appName);
                 log.info("Ensembled prediction created for application '{}' and metric '{}' with value: {}", appName, metricName, ensembledPrediction);
-                //TODO
-                // Store the ensembled prediction in the registry
-//                predictionRegistry.storeEnsembledPrediction(appName, ensembledPrediction);
-//                log.info("Ensembled prediction for application '{}' and metric '{}' stored successfully.", appName, metricName);
 
                 // Retrieve the Publisher via PublisherFactory
                 Publisher publisher = publisherFactory.getOrCreatePublisher(metricName);

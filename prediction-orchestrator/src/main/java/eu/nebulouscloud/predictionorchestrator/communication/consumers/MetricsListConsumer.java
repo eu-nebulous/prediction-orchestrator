@@ -5,9 +5,8 @@ import eu.nebulouscloud.exn.core.Context;
 import eu.nebulouscloud.exn.core.Handler;
 import eu.nebulouscloud.predictionorchestrator.Orchestrator;
 import eu.nebulouscloud.predictionorchestrator.Properties;
-import eu.nebulouscloud.predictionorchestrator.communication.messages.Metric;
-import eu.nebulouscloud.predictionorchestrator.communication.messages.MetricListMessage;
-import eu.nebulouscloud.predictionorchestrator.communication.messages.StartForecastingMessage;
+import eu.nebulouscloud.predictionorchestrator.communication.messages.*;
+import eu.nebulouscloud.predictionorchestrator.communication.publishers.StartEnsemblingPublisher;
 import eu.nebulouscloud.predictionorchestrator.communication.publishers.StartForecastingPublisher;
 import eu.nebulouscloud.predictionorchestrator.config.MethodConfig;
 import lombok.extern.slf4j.Slf4j;
@@ -121,11 +120,6 @@ public class MetricsListConsumer extends Consumer {
                             }
                         }
 
-                        // Double-check if the publisher is null after synchronization
-                        if (startForecastingPublisher == null) {
-                            log.error("Publisher is null for method {}. Could not send message.", method);
-                            continue;  // Skip to the next method if the publisher is null
-                        }
 
                         // Safely send the message using the publisher
                         try {
@@ -141,9 +135,65 @@ public class MetricsListConsumer extends Consumer {
                         log.error("Error while processing forecasting method {}: {}", method, e.getMessage(), e);
                     }
                 }
+
+                List<MetricInfo> metricInfoList = metrics.stream()
+                        .map(m -> new MetricInfo(m.getName()))
+                        .collect(Collectors.toList());
+
+                List<String> models = MethodConfig.getMethodNames();
+
+                StartEnsemblingMessage startEnsemblingMessage = new StartEnsemblingMessage(metricInfoList, models);
+
+                Map<String, Object> ensemblingMap = startEnsemblingMessageToMap(startEnsemblingMessage);
+
+                String ensemblingPublisherKey = "start_ensembling_" + appName;
+
+                StartEnsemblingPublisher startEnsemblingPublisher;
+
+                synchronized (this) {
+                    startEnsemblingPublisher = (StartEnsemblingPublisher) ctx.getPublisher(ensemblingPublisherKey);
+
+                    if (startEnsemblingPublisher == null) {
+                        log.info("StartEnsemblingPublisher for application {} not found, creating a new one.", appName);
+                        startEnsemblingPublisher = new StartEnsemblingPublisher(ensemblingPublisherKey);
+                        ctx.registerPublisher(startEnsemblingPublisher);
+                        log.info("New StartEnsemblingPublisher for application {} registered successfully.", appName);
+                    } else {
+                        log.warn("Publisher {} is already registered.", ensemblingPublisherKey);
+                    }
+                }
+
+                try {
+                    startEnsemblingPublisher.send(ensemblingMap, appName);
+                    log.info("Start ensembling event published for application {}: {}", appName, ensemblingMap);
+                } catch (NullPointerException e) {
+                    log.error("Publisher is null for application {}. Could not send message. Details: {}", appName, e.getMessage(), e);
+                } catch (Exception e) {
+                    log.error("Unexpected error while sending the ensembling message for application {}: {}", appName, e.getMessage(), e);
+                }
+
+
             } catch (Exception e) {
                 log.error("Error in onMessage: {}", e.getMessage(), e);
             }
+        }
+
+        private static Map<String, Object> startEnsemblingMessageToMap(StartEnsemblingMessage msg) {
+            Map<String, Object> map = new HashMap<>();
+
+            // For each MetricInfo, make a small map of {"metric": "foo"}
+            List<Map<String, String>> metricsList = msg.getMetrics().stream()
+                    .map(mi -> {
+                        Map<String, String> singleMetricMap = new HashMap<>();
+                        singleMetricMap.put("metric", mi.getMetric());
+                        return singleMetricMap;
+                    })
+                    .collect(Collectors.toList());
+
+            // Put into the parent map
+            map.put("metrics", metricsList);
+            map.put("models", msg.getModels());
+            return map;
         }
 
         public static StartForecastingMessage mapToStartForecastingMessage(MetricListMessage metricListMessage,

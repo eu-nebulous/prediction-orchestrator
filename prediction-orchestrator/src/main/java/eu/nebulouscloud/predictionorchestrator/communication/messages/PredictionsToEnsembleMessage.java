@@ -24,4 +24,9 @@ public class PredictionsToEnsembleMessage {
     @JsonProperty("predictionsToEnsemble")
     @NonNull
     private Map<String, Double> predictionsByForecaster;
+
+    @JsonProperty("app_id")
+    @NonNull
+    private String appId;
+
 }
