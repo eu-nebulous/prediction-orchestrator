@@ -19,7 +19,7 @@ public class IntermediateMetricsConsumer extends Consumer {
 
     public IntermediateMetricsConsumer(PredictionRegistry predictionRegistry) {
         super("intermediate_metrics_consumer",
-                "eu.nebulouscloud.preliminary_predicted.>",
+                "eu.nebulouscloud.monitoring.preliminary_predicted.>",
                 new IntermediateMetricsHandler(predictionRegistry),
                 true, true);
     }
@@ -40,8 +40,8 @@ public class IntermediateMetricsConsumer extends Consumer {
             String[] parts;
             try {
                 parts = message.to().split("\\.");
-                String predictionMethodName = parts[3];
-                String metricName = parts[4];
+                String predictionMethodName = parts[4];
+                String metricName = parts[5];
 
                 Prediction prediction = new Prediction(
                         Double.parseDouble(body.get("metricValue").toString()),
