@@ -141,7 +141,6 @@ public class Orchestrator {
      * then ensemble them into a single prediction, and publish it.
      */
     private void pullAndEnsemblePredictions(String appName, String metricName, long predictionTime) {
-        // Keep the same log message, including "current timestamp"
         long currentTimestamp = System.currentTimeMillis() / 1000;
         long epochStart = epochStartMap.get(appName)
                 .atZone(ZoneId.systemDefault())
@@ -151,7 +150,6 @@ public class Orchestrator {
                         + "Epoch start: {}, Prediction timestamp: {}.",
                 appName, metricName, currentTimestamp, epochStart, predictionTime);
 
-        // Use 'predictionTime' for lookups to avoid off-by-10s scenario
         if (predictionRegistry != null) {
             Map<String, Prediction> predictionsByMethod =
                     predictionRegistry.getPredictionsByMethodAndTimestamp(
