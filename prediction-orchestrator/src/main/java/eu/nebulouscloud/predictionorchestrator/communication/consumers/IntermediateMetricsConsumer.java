@@ -40,8 +40,8 @@ public class IntermediateMetricsConsumer extends Consumer {
             String[] parts;
             try {
                 parts = message.to().split("\\.");
-                String predictionMethodName = parts[3];
-                String metricName = parts[4];
+                String predictionMethodName = parts[4];
+                String metricName = parts[5];
 
                 Prediction prediction = new Prediction(
                         Double.parseDouble(body.get("metricValue").toString()),

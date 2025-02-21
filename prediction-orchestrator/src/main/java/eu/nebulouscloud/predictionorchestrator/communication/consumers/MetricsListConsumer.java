@@ -28,6 +28,7 @@ import java.util.stream.Collectors;
 public class MetricsListConsumer extends Consumer {
 
     private final Properties properties;
+    private static final long EPOCH_START = System.currentTimeMillis() / 1000L;
 
     @Autowired
     public MetricsListConsumer(Orchestrator orchestrator, Properties properties) {
@@ -79,7 +80,7 @@ public class MetricsListConsumer extends Consumer {
                 // Create a new MetricListMessage for processing
                 MetricListMessage metricListMessage = new MetricListMessage(appName, version, metrics);
 
-                long epochStart = System.currentTimeMillis() / 1000;  // Ensure consistency by using seconds
+                long epochStart = EPOCH_START;
 
                 // Register the application with the orchestrator
                 orchestrator.addApplication(appName,
