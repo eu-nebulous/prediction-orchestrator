@@ -19,6 +19,7 @@ import java.time.ZoneOffset;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 import java.util.stream.Collectors;
@@ -82,11 +83,13 @@ public class MetricsListConsumer extends Consumer {
 
                 long epochStart = EPOCH_START;
 
-                // Register the application with the orchestrator
-                orchestrator.addApplication(appName,
-                        LocalDateTime.ofEpochSecond(epochStart, 0, ZoneOffset.UTC),
-                        metricNames
-                );
+                if(Objects.equals(appName, "_Application1")) {
+                    // Register the application with the orchestrator
+                    orchestrator.addApplication(appName,
+                            LocalDateTime.ofEpochSecond(epochStart, 0, ZoneOffset.UTC),
+                            metricNames
+                    );
+                }
 
                 // Prepare StartForecastingMessage with consistent timestamping
                 StartForecastingMessage startForecastingMessage = mapToStartForecastingMessage(

@@ -19,7 +19,7 @@ public class IntermediateMetricsConsumer extends Consumer {
 
     public IntermediateMetricsConsumer(PredictionRegistry predictionRegistry) {
         super("intermediate_metrics_consumer",
-                "eu.nebulouscloud.preliminary_predicted.>",
+                "eu.nebulouscloud.monitoring.preliminary_predicted.>",
                 new IntermediateMetricsHandler(predictionRegistry),
                 true, true);
     }

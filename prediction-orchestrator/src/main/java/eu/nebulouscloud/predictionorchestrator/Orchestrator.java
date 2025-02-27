@@ -1,10 +1,8 @@
 package eu.nebulouscloud.predictionorchestrator;
 
-import eu.nebulouscloud.exn.core.Context;
 import eu.nebulouscloud.exn.core.Publisher;
 import eu.nebulouscloud.predictionorchestrator.communication.PublisherFactory;
 import eu.nebulouscloud.predictionorchestrator.communication.connectors.BrokerConnectorHandler;
-import eu.nebulouscloud.predictionorchestrator.communication.publishers.PredictedMetricsPublisher;
 import eu.nebulouscloud.predictionorchestrator.ensembling.EnsemblingMechanism;
 import eu.nebulouscloud.predictionorchestrator.ensembling.EnsemblingMechanismFactory;
 import lombok.extern.slf4j.Slf4j;
@@ -52,6 +50,10 @@ public class Orchestrator {
                 properties.getInitial_forward_prediction_number());
     }
 
+    /**
+     * Called externally to register a new application (with an epochStart time, a list
+     * of metric names, and the default horizon from properties). Then we schedule tasks.
+     */
     public void addApplication(String appName, LocalDateTime epochStart, List<String> metricNames) {
         log.info("Adding application {} with epoch start {} and time horizon {} seconds.",
                 appName, epochStart, properties.getInitial_prediction_horizon());
@@ -63,6 +65,9 @@ public class Orchestrator {
         scheduleTasks(appName);
     }
 
+    /**
+     * Begin the scheduling loop for a newly added application.
+     */
     private void scheduleTasks(String appName) {
         log.info("Scheduling tasks for application {}.", appName);
 
@@ -70,10 +75,19 @@ public class Orchestrator {
         int timeHorizon = timeHorizonMap.get(appName);
         List<String> metricNames = metricNamesMap.get(appName);
 
-        // Start scheduling the next task based on epochStart
+        // Start scheduling the next task.
+        // Use 'epochStart' as the initial "adaptationTime" if you like, or LocalDateTime.now().
         scheduleNextTask(appName, epochStart, timeHorizon, metricNames);
     }
 
+    /**
+     * The core scheduling logic. We:
+     * 1. Determine the current time (t1).
+     * 2. Find the nearest horizon p1 = epochStart + N*horizon (where N is the next integer).
+     * 3. If p1 - t1 < horizon => skip p1 => p2 = p1 + horizon.
+     * 4. Schedule the pull at (chosenHorizon - horizon - 10).
+     * 5. Optionally schedule cleanup, then schedule next iteration.
+     */
     private void scheduleNextTask(String appName,
                                   LocalDateTime adaptationTime,
                                   int timeHorizon,
@@ -81,37 +95,66 @@ public class Orchestrator {
 
         log.info("Scheduling next task for application {} at adaptation time {}.", appName, adaptationTime);
 
+        // current time (t1):
+        long currentTimeSeconds = System.currentTimeMillis() / 1000;
+
+        // Convert the stored epochStart into seconds:
         long epochStartSeconds = epochStartMap.get(appName)
                 .atZone(ZoneId.systemDefault())
                 .toEpochSecond();
-        long adaptationTimeSeconds = adaptationTime
-                .atZone(ZoneId.systemDefault())
-                .toEpochSecond();
 
-        // Compute the "next horizon" time in seconds
-        long nextPredictionTime = epochStartSeconds
-                + (((adaptationTimeSeconds - epochStartSeconds) / timeHorizon) + 1) * timeHorizon;
+        // Calculate the number of full horizons since epoch start
+        long horizonCountSinceEpoch = (currentTimeSeconds - epochStartSeconds) / timeHorizon;
+        log.info("For application '{}', epoch start (seconds): {} and horizon count since epoch: {}.",
+                appName, epochStartSeconds, horizonCountSinceEpoch);
 
-        // ***** FIX: We want to fetch 10s AFTER this horizon (1 interval ahead + 10s) *****
-        long fetchTimeEpoch = nextPredictionTime + 10;
-        LocalDateTime fetchTime = LocalDateTime.ofEpochSecond(
-                fetchTimeEpoch, 0,
-                ZoneId.systemDefault().getRules().getOffset(adaptationTime)
+        // Step 1: find the *nearest* horizon p1 that is >= t1
+        //   p1 = epochStart + (⌊(t1 - epochStart)/horizon⌋ + 1)* horizon
+        long candidateHorizonTime = epochStartSeconds + ((horizonCountSinceEpoch + 1) * timeHorizon);
+
+        long diff = candidateHorizonTime - currentTimeSeconds;
+
+        // Step 2: If p1 - t1 < horizon => skip p1 => use p2
+        if (diff < timeHorizon) {
+            // i.e. we're "too close" to p1, so let's jump to p2
+            log.info("p1 - t1 = {} seconds (< {}), skipping horizon {} -> using {}",
+                    diff, timeHorizon, candidateHorizonTime, (candidateHorizonTime + timeHorizon));
+            candidateHorizonTime += timeHorizon;
+        } else {
+            log.info("p1 - t1 = {} seconds (>= {}), we use nearest horizon {}",
+                    diff, timeHorizon, candidateHorizonTime);
+        }
+
+        // Store the final horizon in a "final" variable for use in lambdas
+        final long chosenHorizonTime = candidateHorizonTime;
+
+        // Step 3: We schedule the fetch at (p - horizon - 10),
+        //         i.e. p - (timeHorizon + 10)
+        final long fetchTimeEpoch = chosenHorizonTime - (timeHorizon + 10);
+
+        // Convert to LocalDateTime
+        final LocalDateTime fetchTime = LocalDateTime.ofEpochSecond(
+                fetchTimeEpoch,
+                0,
+                ZoneId.systemDefault().getRules().getOffset(LocalDateTime.now())
         );
 
-        log.info("Fetch time for application {}: {} (10 seconds AFTER horizon at {}).",
-                appName, fetchTime, nextPredictionTime);
+        log.info("Will fetch predictions for horizon {} at {} (which is horizon - {} - 10).",
+                chosenHorizonTime, fetchTime, timeHorizon);
 
-        // Schedule the "pull" step at horizon + 10s
+        // Step 4: schedule the "pull" step for each metric at 'fetchTime'
         for (String metricName : metricNames) {
             scheduler.schedule(
-                    () -> pullAndEnsemblePredictions(appName, metricName, nextPredictionTime),
+                    () -> pullAndEnsemblePredictions(appName, metricName, chosenHorizonTime),
                     fetchTime.atZone(ZoneId.systemDefault()).toInstant()
             );
         }
 
-        // (Optional) schedule cleanup of old predictions
-        LocalDateTime cleanupTime = adaptationTime.plusSeconds(60);
+        long adaptationTimeSeconds = adaptationTime
+                .atZone(ZoneId.systemDefault())
+                .toEpochSecond();
+        final LocalDateTime cleanupTime = adaptationTime.plusSeconds(60);
+
         log.debug("Scheduling cleanup for application {} at {} (1 minute after adaptation).",
                 appName, cleanupTime);
 
@@ -126,8 +169,8 @@ public class Orchestrator {
             );
         }
 
-        // Schedule the next adaptation
-        LocalDateTime nextAdaptationTime = adaptationTime.plusSeconds(timeHorizon);
+        // Step 5: schedule next adaptation
+        final LocalDateTime nextAdaptationTime = adaptationTime.plusSeconds(timeHorizon);
         log.info("Next adaptation time for application {}: {}.", appName, nextAdaptationTime);
 
         scheduler.schedule(
@@ -137,10 +180,11 @@ public class Orchestrator {
     }
 
     /**
-     * Pull all predictions for the given (appName, metricName) at the specified horizon time,
-     * then ensemble them into a single prediction, and publish it.
+     * Actually performs the "pull" from PredictionRegistry and the ensembling,
+     * then publishes it.
      */
     private void pullAndEnsemblePredictions(String appName, String metricName, long predictionTime) {
+
         long currentTimestamp = System.currentTimeMillis() / 1000;
         long epochStart = epochStartMap.get(appName)
                 .atZone(ZoneId.systemDefault())
@@ -160,10 +204,9 @@ public class Orchestrator {
                 log.debug("Retrieved {} predictions for '{}'/ '{}' at timestamp {}.",
                         predictionsByMethod.size(), appName, metricName, predictionTime);
 
-                // Perform ensembling
-                Prediction ensembledPrediction = ensemblingMechanism.poolPredictions(
-                        predictionsByMethod, metricName, appName
-                );
+                // Ensembling
+                Prediction ensembledPrediction =
+                        ensemblingMechanism.poolPredictions(predictionsByMethod, metricName, appName);
                 log.info("Ensembled prediction created for '{}'/ '{}': {}",
                         appName, metricName, ensembledPrediction);
 
