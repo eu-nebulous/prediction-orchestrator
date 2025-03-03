@@ -24,8 +24,7 @@ public class PredictionRegistry {
     public PredictionRegistry(InfluxDBService influxDBService) {
         this.influxDBService = influxDBService;
 
-        // Safely set the queue size, fallback to a default value if not properly configured
-        int defaultQueueSize = 10; // Set a sensible default value
+        int defaultQueueSize = 20;
         this.queueSize = Math.max(properties.getInitial_forward_prediction_number(), defaultQueueSize);
     }
 
@@ -42,6 +41,7 @@ public class PredictionRegistry {
     public void storePrediction(String appName, String metricName, String method, Prediction prediction) {
         CircularFifoQueue<Prediction> queue = getOrCreateQueue(appName, metricName, method, prediction.getPredictionTime());
         queue.add(prediction); // Automatically discards the oldest prediction when full
+        storePredictionInfluxDb(appName,prediction, method);
     }
 
     // Get the latest prediction for each method at the specified timestamp
@@ -75,16 +75,51 @@ public class PredictionRegistry {
     }
 
     // Store the ensembled prediction in InfluxDB
-    public void storeEnsembledPrediction(String applicationName, Prediction ensembledPrediction) {
+    public void storePredictionInfluxDb(String applicationName, Prediction ensembledPrediction, String method) {
         try {
-            String bucketName = "ensembledPredictions_" + applicationName;
-
             // Write the ensembled prediction to InfluxDB under the specified bucket
-            influxDBService.writePrediction(bucketName, ensembledPrediction);
-
-            log.info("Successfully stored ensembled prediction for application {} in bucket {}", applicationName, bucketName);
+            influxDBService.writePrediction(applicationName, ensembledPrediction, method);
         } catch (Exception e) {
             log.error("Failed to store ensembled prediction for application {}", applicationName, e);
         }
     }
+    public void printAllPredictionsForApplication(String targetAppName) {
+        Map<String, Map<String, Map<Long, CircularFifoQueue<Prediction>>>> metricsMap
+                = predictionQueues.get(targetAppName);
+
+        if (metricsMap == null) {
+            log.info("No predictions found for application '{}'.", targetAppName);
+            return;
+        }
+
+        log.info("Predictions for application '{}':", targetAppName);
+
+        // Iterate over metrics
+        for (Map.Entry<String, Map<String, Map<Long, CircularFifoQueue<Prediction>>>> metricEntry
+                : metricsMap.entrySet()) {
+            String metricName = metricEntry.getKey();
+            Map<String, Map<Long, CircularFifoQueue<Prediction>>> methodsMap = metricEntry.getValue();
+
+            // Iterate over methods
+            for (Map.Entry<String, Map<Long, CircularFifoQueue<Prediction>>> methodEntry
+                    : methodsMap.entrySet()) {
+                String methodName = methodEntry.getKey();
+                Map<Long, CircularFifoQueue<Prediction>> timestampsMap = methodEntry.getValue();
+
+                // Iterate over timestamps
+                for (Map.Entry<Long, CircularFifoQueue<Prediction>> timestampEntry
+                        : timestampsMap.entrySet()) {
+                    Long timestamp = timestampEntry.getKey();
+                    CircularFifoQueue<Prediction> queue = timestampEntry.getValue();
+
+                    // Print each prediction
+                    for (Prediction prediction : queue) {
+                        log.info("  Metric: {}, Method: {}, Timestamp: {}, Prediction: {}",
+                                metricName, methodName, timestamp, prediction);
+                    }
+                }
+            }
+        }
+    }
+
 }

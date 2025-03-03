@@ -11,8 +11,6 @@ import org.springframework.scheduling.TaskScheduler;
 import org.springframework.scheduling.concurrent.ThreadPoolTaskScheduler;
 import org.springframework.stereotype.Component;
 
-import java.time.Duration;
-import java.time.Instant;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
 import java.util.List;
@@ -30,13 +28,15 @@ public class Orchestrator {
     private final EnsemblingMechanism ensemblingMechanism;
     private final Properties properties;
     private final PredictionRegistry predictionRegistry;
-    private final ConcurrentHashMap<String, Boolean> scheduledTasks = new ConcurrentHashMap<>();
 
     @Autowired
     private PublisherFactory publisherFactory;
 
     @Autowired
-    public Orchestrator(Properties properties, PredictionRegistry predictionRegistry, BrokerConnectorHandler brokerConnectorHandler) {
+    public Orchestrator(Properties properties,
+                        PredictionRegistry predictionRegistry,
+                        BrokerConnectorHandler brokerConnectorHandler) {
+
         ThreadPoolTaskScheduler taskScheduler = new ThreadPoolTaskScheduler();
         taskScheduler.setPoolSize(properties.getInitial_forward_prediction_number());
         taskScheduler.initialize();
@@ -45,16 +45,18 @@ public class Orchestrator {
         this.properties = properties;
         this.predictionRegistry = predictionRegistry;
         this.ensemblingMechanism = EnsemblingMechanismFactory.getEnsemblingMechanism(properties);
-        log.info("Orchestrator initialized with a pool size of {} for the TaskScheduler.", properties.getInitial_forward_prediction_number());
+
+        log.info("Orchestrator initialized with a pool size of {} for the TaskScheduler.",
+                properties.getInitial_forward_prediction_number());
     }
 
+    /**
+     * Called externally to register a new application (with an epochStart time, a list
+     * of metric names, and the default horizon from properties). Then we schedule tasks.
+     */
     public void addApplication(String appName, LocalDateTime epochStart, List<String> metricNames) {
-        if (epochStartMap.containsKey(appName)) {
-            log.warn("Application {} is already scheduled. Skipping addition.", appName);
-            return;
-        }
-
-        log.info("Adding application {} with epoch start {} and time horizon {} seconds.", appName, epochStart, properties.getInitial_prediction_horizon());
+        log.info("Adding application {} with epoch start {} and time horizon {} seconds.",
+                appName, epochStart, properties.getInitial_prediction_horizon());
 
         epochStartMap.put(appName, epochStart);
         timeHorizonMap.put(appName, properties.getInitial_prediction_horizon());
@@ -63,6 +65,9 @@ public class Orchestrator {
         scheduleTasks(appName);
     }
 
+    /**
+     * Begin the scheduling loop for a newly added application.
+     */
     private void scheduleTasks(String appName) {
         log.info("Scheduling tasks for application {}.", appName);
 
@@ -70,132 +75,163 @@ public class Orchestrator {
         int timeHorizon = timeHorizonMap.get(appName);
         List<String> metricNames = metricNamesMap.get(appName);
 
-        LocalDateTime now = LocalDateTime.now();
-        long epochStartEpoch = epochStart.atZone(ZoneId.systemDefault()).toEpochSecond();
-        long nowEpoch = now.atZone(ZoneId.systemDefault()).toEpochSecond();
-        long timeHorizonSeconds = timeHorizon;
+        // Start scheduling the next task.
+        // Use 'epochStart' as the initial "adaptationTime" if you like, or LocalDateTime.now().
+        scheduleNextTask(appName, epochStart, timeHorizon, metricNames);
+    }
 
-        long elapsed = nowEpoch - epochStartEpoch;
+    /**
+     * The core scheduling logic. We:
+     * 1. Determine the current time (t1).
+     * 2. Find the nearest horizon p1 = epochStart + N*horizon (where N is the next integer).
+     * 3. If p1 - t1 < horizon => skip p1 => p2 = p1 + horizon.
+     * 4. Schedule the pull at (chosenHorizon - horizon - 10).
+     * 5. Optionally schedule cleanup, then schedule next iteration.
+     */
+    private void scheduleNextTask(String appName,
+                                  LocalDateTime adaptationTime,
+                                  int timeHorizon,
+                                  List<String> metricNames) {
 
-        long intervalsPassed;
-        if (elapsed < 0) {
-            intervalsPassed = 0;
-            log.debug("Current time is before epochStart for application {}.", appName);
+        log.info("Scheduling next task for application {} at adaptation time {}.", appName, adaptationTime);
+
+        // current time (t1):
+        long currentTimeSeconds = System.currentTimeMillis() / 1000;
+
+        // Convert the stored epochStart into seconds:
+        long epochStartSeconds = epochStartMap.get(appName)
+                .atZone(ZoneId.systemDefault())
+                .toEpochSecond();
+
+        // Calculate the number of full horizons since epoch start
+        long horizonCountSinceEpoch = (currentTimeSeconds - epochStartSeconds) / timeHorizon;
+        log.info("For application '{}', epoch start (seconds): {} and horizon count since epoch: {}.",
+                appName, epochStartSeconds, horizonCountSinceEpoch);
+
+        // Step 1: find the *nearest* horizon p1 that is >= t1
+        //   p1 = epochStart + (⌊(t1 - epochStart)/horizon⌋ + 1)* horizon
+        long candidateHorizonTime = epochStartSeconds + ((horizonCountSinceEpoch + 1) * timeHorizon);
+
+        long diff = candidateHorizonTime - currentTimeSeconds;
+
+        // Step 2: If p1 - t1 < horizon => skip p1 => use p2
+        if (diff < timeHorizon) {
+            // i.e. we're "too close" to p1, so let's jump to p2
+            log.info("p1 - t1 = {} seconds (< {}), skipping horizon {} -> using {}",
+                    diff, timeHorizon, candidateHorizonTime, (candidateHorizonTime + timeHorizon));
+            candidateHorizonTime += timeHorizon;
         } else {
-            intervalsPassed = (elapsed + timeHorizonSeconds) / timeHorizonSeconds;
-            log.debug("Elapsed time since epochStart: {} seconds. Intervals passed: {}.", elapsed, intervalsPassed);
+            log.info("p1 - t1 = {} seconds (>= {}), we use nearest horizon {}",
+                    diff, timeHorizon, candidateHorizonTime);
         }
 
-        long nextAdaptationEpoch = epochStartEpoch + (intervalsPassed * timeHorizonSeconds);
-        LocalDateTime nextAdaptationTime = LocalDateTime.ofInstant(Instant.ofEpochSecond(nextAdaptationEpoch), ZoneId.systemDefault());
+        // Store the final horizon in a "final" variable for use in lambdas
+        final long chosenHorizonTime = candidateHorizonTime;
 
+        // Step 3: We schedule the fetch at (p - horizon - 10),
+        //         i.e. p - (timeHorizon + 10)
+        final long fetchTimeEpoch = chosenHorizonTime - (timeHorizon + 10);
+
+        // Convert to LocalDateTime
+        final LocalDateTime fetchTime = LocalDateTime.ofEpochSecond(
+                fetchTimeEpoch,
+                0,
+                ZoneId.systemDefault().getRules().getOffset(LocalDateTime.now())
+        );
+
+        log.info("Will fetch predictions for horizon {} at {} (which is horizon - {} - 10).",
+                chosenHorizonTime, fetchTime, timeHorizon);
+
+        // Step 4: schedule the "pull" step for each metric at 'fetchTime'
+        for (String metricName : metricNames) {
+            scheduler.schedule(
+                    () -> pullAndEnsemblePredictions(appName, metricName, chosenHorizonTime),
+                    fetchTime.atZone(ZoneId.systemDefault()).toInstant()
+            );
+        }
+
+        long adaptationTimeSeconds = adaptationTime
+                .atZone(ZoneId.systemDefault())
+                .toEpochSecond();
+        final LocalDateTime cleanupTime = adaptationTime.plusSeconds(60);
+
+        log.debug("Scheduling cleanup for application {} at {} (1 minute after adaptation).",
+                appName, cleanupTime);
+
+        for (String metricName : metricNames) {
+            scheduler.schedule(
+                    () -> {
+                        log.debug("Cleaning up old predictions for app {}, metric {}, at timestamp {}.",
+                                appName, metricName, adaptationTimeSeconds);
+                        predictionRegistry.cleanupOldPredictions(appName, metricName, adaptationTimeSeconds);
+                    },
+                    cleanupTime.atZone(ZoneId.systemDefault()).toInstant()
+            );
+        }
+
+        // Step 5: schedule next adaptation
+        final LocalDateTime nextAdaptationTime = adaptationTime.plusSeconds(timeHorizon);
         log.info("Next adaptation time for application {}: {}.", appName, nextAdaptationTime);
 
-        scheduleNextTask(appName, nextAdaptationTime, timeHorizon, metricNames);
+        scheduler.schedule(
+                () -> scheduleNextTask(appName, nextAdaptationTime, timeHorizon, metricNames),
+                nextAdaptationTime.atZone(ZoneId.systemDefault()).toInstant()
+        );
     }
 
-    private void scheduleNextTask(String appName, LocalDateTime adaptationEvaluationTime, int timeHorizon, List<String> metricNames) {
-        log.info("Scheduling ensembling tasks for application {} at {}.", appName, adaptationEvaluationTime);
+    /**
+     * Actually performs the "pull" from PredictionRegistry and the ensembling,
+     * then publishes it.
+     */
+    private void pullAndEnsemblePredictions(String appName, String metricName, long predictionTime) {
 
-        int bufferSeconds = 10;
-        int forwardPredictionCount = properties.getInitial_forward_prediction_number();
-        log.debug("initial_forward_prediction_number: {}", forwardPredictionCount);
+        long currentTimestamp = System.currentTimeMillis() / 1000;
+        long epochStart = epochStartMap.get(appName)
+                .atZone(ZoneId.systemDefault())
+                .toEpochSecond();
 
-        final LocalDateTime now = LocalDateTime.now();
-
-        if (adaptationEvaluationTime == null) {
-            adaptationEvaluationTime = now.plusSeconds(timeHorizon + bufferSeconds);
-        }
-
-        for (int i = 0; i < forwardPredictionCount; i++) {
-            log.debug("Iteration {} of {} for application {}", i + 1, forwardPredictionCount, appName);
-            final LocalDateTime adaptationTime = adaptationEvaluationTime.plusSeconds((i + 1) * timeHorizon);
-
-            Duration durationUntilAdaptation = Duration.between(now, adaptationTime);
-            long secondsUntilAdaptation = durationUntilAdaptation.getSeconds();
-            log.debug("Seconds until adaptation for iteration {}: {}", i + 1, secondsUntilAdaptation);
-
-            if (secondsUntilAdaptation <= timeHorizon) {
-                log.warn("Adaptation time {} for application {} is within the time horizon of {} seconds. Skipping immediate ensembling.", adaptationTime, appName, timeHorizon);
-                continue;
-            }
-
-            LocalDateTime calculatedEnsembleExecutionTime = adaptationTime.minusSeconds(bufferSeconds + timeHorizon);
-            final LocalDateTime ensembleExecutionTime = calculatedEnsembleExecutionTime.isBefore(now.plusSeconds(1)) ? now.plusSeconds(1) : calculatedEnsembleExecutionTime;
-
-            log.debug("Ensembling execution time for application {}: {} (buffer of {} seconds before adaptation evaluation).", appName, ensembleExecutionTime, bufferSeconds);
-
-            for (String metricName : metricNames) {
-                String taskKey = appName + ":" + metricName + ":" + adaptationTime;
-                if (scheduledTasks.putIfAbsent(taskKey, true) == null) {
-                    scheduler.schedule(() -> {
-                        try {
-                            log.debug("Scheduled ensembling task running for metric {} at {}.", metricName, ensembleExecutionTime);
-                            pullAndEnsemblePredictions(appName, metricName, adaptationTime);
-                        } finally {
-                            scheduledTasks.remove(taskKey);
-                        }
-                    }, ensembleExecutionTime.atZone(ZoneId.systemDefault()).toInstant());
-                }
-            }
-
-            final LocalDateTime cleanupTime = adaptationTime.plusSeconds(60);
-            log.debug("Scheduling cleanup for application {} at {} (60 seconds after adaptation).", appName, cleanupTime);
-
-            for (String metricName : metricNames) {
-                String taskKey = appName + ":cleanup:" + metricName + ":" + adaptationTime;
-                if (scheduledTasks.putIfAbsent(taskKey, true) == null) {
-                    scheduler.schedule(() -> {
-                        try {
-                            long adaptationTimeEpoch = adaptationTime.atZone(ZoneId.systemDefault()).toEpochSecond();
-                            log.debug("Cleaning up old predictions for application {}, metric {}, at timestamp {}.", appName, metricName, adaptationTimeEpoch);
-                            predictionRegistry.cleanupOldPredictions(appName, metricName, adaptationTimeEpoch);
-                        } finally {
-                            scheduledTasks.remove(taskKey);
-                        }
-                    }, cleanupTime.atZone(ZoneId.systemDefault()).toInstant());
-                }
-            }
-        }
-
-        final LocalDateTime nextAdaptationEvaluationTime = adaptationEvaluationTime.plusSeconds(timeHorizon);
-        log.info("Next adaptation evaluation time for application {}: {}.", appName, nextAdaptationEvaluationTime);
-
-        scheduler.schedule(() -> scheduleNextTask(appName, nextAdaptationEvaluationTime, timeHorizon, metricNames),
-                nextAdaptationEvaluationTime.atZone(ZoneId.systemDefault()).toInstant());
-    }
-
-    private void pullAndEnsemblePredictions(String appName, String metricName, LocalDateTime adaptationTime) {
-        long adaptationTimeEpoch = adaptationTime.atZone(ZoneId.systemDefault()).toEpochSecond();
-        log.info("Pulling predictions for application '{}' and metric '{}' at timestamp {}.", appName, metricName, adaptationTimeEpoch);
+        log.info("Pulling predictions for application '{}' and metric '{}' at current timestamp {}. "
+                        + "Epoch start: {}, Prediction timestamp: {}.",
+                appName, metricName, currentTimestamp, epochStart, predictionTime);
 
         if (predictionRegistry != null) {
-            Map<String, Prediction> predictionsByMethod = predictionRegistry.getPredictionsByMethodAndTimestamp(appName, metricName, adaptationTimeEpoch);
+            Map<String, Prediction> predictionsByMethod =
+                    predictionRegistry.getPredictionsByMethodAndTimestamp(
+                            appName, metricName, predictionTime
+                    );
 
             if (!predictionsByMethod.isEmpty()) {
-                log.debug("Retrieved {} predictions for application '{}' and metric '{}' at timestamp {}.", predictionsByMethod.size(), appName, metricName, adaptationTimeEpoch);
+                log.debug("Retrieved {} predictions for '{}'/ '{}' at timestamp {}.",
+                        predictionsByMethod.size(), appName, metricName, predictionTime);
 
-                Prediction ensembledPrediction = ensemblingMechanism.poolPredictions(predictionsByMethod, metricName);
-                log.info("Ensembled prediction created for application '{}' and metric '{}' with value: {}", appName, metricName, ensembledPrediction);
+                // Ensembling
+                Prediction ensembledPrediction =
+                        ensemblingMechanism.poolPredictions(predictionsByMethod, metricName, appName);
+                log.info("Ensembled prediction created for '{}'/ '{}': {}",
+                        appName, metricName, ensembledPrediction);
 
+                // Publish
                 Publisher publisher = publisherFactory.getOrCreatePublisher(metricName);
-
                 if (publisher != null) {
                     try {
                         publisher.send(Prediction.toMap(ensembledPrediction), appName);
-                        log.info("Ensembled prediction for application '{}' and metric '{}' sent to publisher successfully.", appName, metricName);
+                        log.info("Ensembled prediction for '{}'/ '{}' sent to publisher successfully.",
+                                appName, metricName);
                     } catch (Exception e) {
-                        log.error("Failed to send ensembled prediction for application '{}' and metric '{}'. Exception: {}", appName, metricName, e.getMessage(), e);
+                        log.error("Failed to send ensembled prediction for '{}'/ '{}'. Exception: {}",
+                                appName, metricName, e.getMessage(), e);
                     }
                 } else {
-                    log.error("Unable to obtain Publisher for metric '{}' and application '{}'.", metricName, appName);
+                    log.error("Unable to obtain Publisher for metric '{}' in application '{}'.",
+                            metricName, appName);
                 }
-
             } else {
-                log.warn("No predictions found for application '{}' and metric '{}' at timestamp {}.", appName, metricName, adaptationTimeEpoch);
+                log.warn("No predictions found for '{}'/ '{}' at timestamp {}.",
+                        appName, metricName, predictionTime);
             }
         } else {
-            log.error("PredictionRegistry is null. Cannot pull predictions for application '{}' and metric '{}'.", appName, metricName);
+            log.error("PredictionRegistry is null. Cannot pull predictions for '{}'/ '{}'.",
+                    appName, metricName);
         }
     }
 }

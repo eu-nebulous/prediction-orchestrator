@@ -16,7 +16,7 @@ public class OuterEnsembler extends Ensembler {
     private EnsemblerService ensemblerService;
 
     @Override
-    public double ensembleValues(Map<String, Prediction> predictionsByMethod, String metricName) {
+    public double ensembleValues(Map<String, Prediction> predictionsByMethod, String metricName, String appName) {
         long predictionTime =  predictionsByMethod.values().stream()
                 .findFirst()
                 .get()
@@ -28,7 +28,9 @@ public class OuterEnsembler extends Ensembler {
                 predictionsByMethod.entrySet().stream()
                         .collect(HashMap::new,
                                 (m, v) -> m.put(v.getKey(), Double.valueOf(v.getValue() == null ? null : v.getValue().getMetricValue())),
-                                HashMap::putAll)
+                                HashMap::putAll),
+                appName
+
         );
         PredictionsEnsembledMessage ensembledMessage;
         try {

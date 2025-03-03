@@ -10,7 +10,7 @@ public class AverageValuesEnsembler extends Ensembler {
 
 
     @Override
-    public double ensembleValues(Map<String, Prediction> predictionsByMethod, String metricName) {
+    public double ensembleValues(Map<String, Prediction> predictionsByMethod, String metricName, String appName) {
         return predictionsByMethod.values().stream()
                 .filter(Objects::nonNull)
                 .mapToDouble(Prediction::getMetricValue)
