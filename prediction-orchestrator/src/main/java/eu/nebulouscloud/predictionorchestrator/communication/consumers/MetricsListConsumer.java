@@ -83,13 +83,12 @@ public class MetricsListConsumer extends Consumer {
 
                 long epochStart = EPOCH_START;
 
-                if(Objects.equals(appName, "_Application1")) {
-                    // Register the application with the orchestrator
-                    orchestrator.addApplication(appName,
-                            LocalDateTime.ofEpochSecond(epochStart, 0, ZoneOffset.UTC),
-                            metricNames
-                    );
-                }
+
+                orchestrator.addApplication(appName,
+                        LocalDateTime.ofEpochSecond(epochStart, 0, ZoneOffset.UTC),
+                        metricNames
+                );
+        
 
                 // Prepare StartForecastingMessage with consistent timestamping
                 StartForecastingMessage startForecastingMessage = mapToStartForecastingMessage(
