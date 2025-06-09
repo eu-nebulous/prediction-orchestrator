@@ -17,7 +17,7 @@ public class EnsemblingMechanism  {
     private Ensembler ensembler;
     private ForecastersNumberVerifier forecastersNumberVerifier;
 
-    public Prediction poolPredictions(Map<String, Prediction> predictionsByMethod, String metricName) {
+    public Prediction poolPredictions(Map<String, Prediction> predictionsByMethod, String metricName, String appName) {
         int expectedForecastersDataCount = predictionsByMethod.size();
         Map<String, Prediction> nonNullPredictions = predictionsByMethod.entrySet()
                 .stream()
@@ -42,7 +42,7 @@ public class EnsemblingMechanism  {
         try {
 
             return new Prediction(
-                    ensembler.ensembleValues(predictionsByMethod, metricName),
+                    ensembler.ensembleValues(predictionsByMethod, metricName, appName),
                     anyPrediction.getComponentId(),
                     System.currentTimeMillis() / 1000,
                     nonNullPredictions.values().stream()

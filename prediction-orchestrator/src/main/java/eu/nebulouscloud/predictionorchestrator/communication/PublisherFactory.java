@@ -58,40 +58,4 @@ public class PublisherFactory {
         return publisher;
     }
 
-    /**
-     * Removes a Publisher from the factory, e.g., when connection is lost.
-     *
-     * @param metricName The name of the metric.
-     */
-    public void removePublisher(String metricName) {
-        publishers.remove(metricName);
-    }
-
-    /**
-     * Re-register all publishers when the context becomes available again.
-     */
-    public void reRegisterAllPublishers() {
-        Context context = brokerConnectorHandler.getContext();
-        if (context == null) {
-            log.error("Context is not available. Cannot re-register publishers.");
-            return;
-        }
-
-        for (String metricName : publishers.keySet()) {
-            try {
-                Publisher publisher = publishers.get(metricName);
-                context.registerPublisher(publisher);
-                log.info("Re-registered PredictedMetricsPublisher for metric '{}'.", metricName);
-            } catch (Exception e) {
-                log.error("Failed to re-register PredictedMetricsPublisher for metric '{}'. Exception: {}", metricName, e.getMessage(), e);
-            }
-        }
-    }
-
-    /**
-     * Removes all publishers from the factory, e.g., when connection is lost.
-     */
-    public void removeAllPublishers() {
-        publishers.clear();
-    }
 }
