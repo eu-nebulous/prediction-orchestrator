@@ -57,7 +57,11 @@ public class MetricsListConsumer extends Consumer {
                 String appName = (String) body.get("name");
                 long version = (Long) body.get("version");
                 log.info("Metric list received for application {} with version {}", appName, version);
-
+                if(appName == null)
+                {
+                	log.warn("Recieved metric list for app null, ignoring it. Body:{}",body.toString());
+                	return;
+                }
                 // Check if the version has changed
                 Long lastVersion = applicationVersions.get(appName);
                 if (lastVersion != null && lastVersion.equals(version)) {
@@ -177,7 +181,7 @@ public class MetricsListConsumer extends Consumer {
 
 
             } catch (Exception e) {
-                log.error("Error in onMessage: {}", e.getMessage(), e);
+            	log.error("Failed processing key:{}, address:{}, body:{}",key,address,body,e);
             }
         }
 

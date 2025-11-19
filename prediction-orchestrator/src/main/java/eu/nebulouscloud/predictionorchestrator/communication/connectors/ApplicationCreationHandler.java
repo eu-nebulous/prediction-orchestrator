@@ -44,7 +44,7 @@ public class ApplicationCreationHandler extends Handler {
             }
 
         } catch (Exception e) {
-            log.error("Error while receiving app creation message", e);
+        	log.error("Failed processing key:{}, address:{}, body:{}",key,address,body,e );
         }
     }
 }
