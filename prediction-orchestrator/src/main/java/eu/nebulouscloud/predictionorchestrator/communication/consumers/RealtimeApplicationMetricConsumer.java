@@ -76,7 +76,7 @@ public class RealtimeApplicationMetricConsumer extends Consumer {
         private Map<String, Object> transformToPredictedMetric(Map<String, Object> metric) {
             Map<String, Object> predictedMetric = new HashMap<>(metric);
             Double metricValue = (Double) metric.get("metricValue");
-            int level = (int) metric.get("level");
+            double level = (double) metric.get("level");
 
 
             predictedMetric.put("timestamp", System.currentTimeMillis() / 1000);
