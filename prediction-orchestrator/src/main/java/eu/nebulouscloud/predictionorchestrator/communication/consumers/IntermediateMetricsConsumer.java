@@ -57,8 +57,7 @@ public class IntermediateMetricsConsumer extends Consumer {
                 predictionRegistry.storePrediction(applicationName, metricName, predictionMethodName, prediction);
 
             } catch (Exception e) {
-                log.error("Failed to process message", e);
-                throw new RuntimeException("Failed to process message", e);
+            	log.error("Failed processing key:{}, address:{}, body:{}",key,address,body,e);
             }
         }
     }

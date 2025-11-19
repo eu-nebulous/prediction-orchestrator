@@ -31,6 +31,7 @@ public class RealtimeApplicationMetricConsumer extends Consumer {
 
         @Override
         public void onMessage(String key, String address, Map body, Message message, Context ctx) {
+        	try {
             log.debug("Received message with key: {}, address: {}", key, address);
 
             // Transform Type I message to Type II format (predicted metrics)
@@ -66,6 +67,10 @@ public class RealtimeApplicationMetricConsumer extends Consumer {
             }
             predictedMetricsPublisher.send(predictedMetric, applicationName);
             log.info("Sent predicted metric to topic: {}", predictedMetric);
+        	}catch(Exception ex)
+        	{
+        		log.error("Failed processing key:{}, address:{}, body:{}",key,address,body,ex );
+        	}
         }
 
         private Map<String, Object> transformToPredictedMetric(Map<String, Object> metric) {
