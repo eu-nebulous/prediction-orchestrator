@@ -38,8 +38,6 @@ public class BrokerConnector {
 
     public static final String app_creation_channel = "eu.nebulouscloud.ui.dsl.generic";
 
-    @Autowired
-    private ApplicationCreationHandler applicationCreationHandler;
 
     @Autowired
     private Orchestrator orchestrator;
@@ -65,9 +63,7 @@ public class BrokerConnector {
                     "prediction_orchestrator",
                     brokerConnectorHandler,
                     List.of(), // List of publishers
-                    List.of(new Consumer("ui_app_messages", app_creation_channel,
-                            applicationCreationHandler, true, true),
-                            new MetricsListConsumer(orchestrator, properties),
+                    List.of(new MetricsListConsumer(orchestrator, properties),
                             new IntermediateMetricsConsumer(predictionRegistry)),
                     true, // enableState
                     true, // enableHealth
