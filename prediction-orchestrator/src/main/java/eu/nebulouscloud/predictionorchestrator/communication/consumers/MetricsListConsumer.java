@@ -12,6 +12,7 @@ import eu.nebulouscloud.predictionorchestrator.config.MethodConfig;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.qpid.protonj2.client.Message;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
 import java.time.LocalDateTime;
@@ -20,6 +21,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 import java.util.stream.Collectors;
@@ -31,6 +33,9 @@ public class MetricsListConsumer extends Consumer {
     private final Properties properties;
     private static final long EPOCH_START = System.currentTimeMillis() / 1000L;
 
+    @Value("${metric.mode}")
+    private String mode;
+    
     @Autowired
     public MetricsListConsumer(Orchestrator orchestrator, Properties properties) {
         super("metric_list_consumer",
@@ -71,6 +76,22 @@ public class MetricsListConsumer extends Consumer {
 
                 // Update the application's version in the registry
                 applicationVersions.put(appName, version);
+                
+                //If it is first time seeing the app, register RealtimeApplicationMetricConsumer for it
+                if(lastVersion==null)
+                {
+
+                    try {
+                        String app_id = Optional.ofNullable(message.subject())
+                                .orElse(message.property("application").toString());
+                        log.info("App creation message received for application: {}", app_id);
+                        ctx.registerConsumer(new RealtimeApplicationMetricConsumer(app_id));
+                    } catch (Exception e) {
+                    	log.error("Failed processing key:{}, address:{}, body:{}",key,address,body,e );
+                    }
+               	
+                }
+                
 
                 // Retrieve and process metrics list from the message body
                 List<Map<String, String>> metricsMap = (List<Map<String, String>>) body.get("metric_list");
